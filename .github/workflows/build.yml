@@ -14,7 +14,7 @@ jobs:
       - name: Install Procursus
         uses: dhinakg/procursus-action@main
         with:
-          packages: ldid sed
+          packages: ldid
 
       - name: Install better GNU Make
         run: |
