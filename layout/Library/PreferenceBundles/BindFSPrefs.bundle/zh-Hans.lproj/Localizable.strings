@@ -21,3 +21,16 @@
 "Apply mount settings now?" = "应用挂载？";
 "Applied" = "已应用";
 "Failed" = "失败";
+"Advanced Settings" = "高级设置";
+"APPLY METHOD" = "生效方式";
+"Reboot Userspace" = "重启用户空间";
+"Restart Desktop" = "重启桌面";
+"(none)" = "暂无";
+"Mount Now" = "立即挂载";
+"Reload" = "重载";
+"RELOAD METHOD" = "重载方式";
+"Reload note" = "仅重启桌面可能不足以让应用重新读取挂载后的文件，但是速度更快，影响的服务更少，适用于换字体查看效果之类轻量动作";
+"Open" = "打开";
+"Path does not exist, please apply mount first" = "路径不存在，请先应用挂载";
+"Mount attempted" = "已尝试挂载";
+"Filza not installed" = "Filza 未安装";

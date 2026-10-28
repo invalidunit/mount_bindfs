@@ -14,7 +14,7 @@ jobs:
       - name: Install Procursus
         uses: dhinakg/procursus-action@main
         with:
-          packages: ldid make
+          packages: ldid sed
 
       - name: Install better GNU Make
         run: |
@@ -23,18 +23,18 @@ jobs:
 
       - name: Install RootHide Theos
         run: |
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos)"
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-          echo "$HOME/theos/bin" >> $GITHUB_PATH
+          git clone --recursive https://github.com/roothide/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          echo "$HOME/theos/bin" >> "$GITHUB_PATH"
 
-      - name: Download iOS SDK
-        run: |
-          mkdir -p $HOME/theos/sdks
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git $HOME/iOS-SDKs
-          cd $HOME/iOS-SDKs
-          git sparse-checkout set iPhoneOS18.6.sdk
-          cp -R iPhoneOS18.6.sdk $HOME/theos/sdks/
-          ls $HOME/theos/sdks
+      #- name: Download SDK
+        #run: |
+          #mkdir -p $HOME/theos/sdks
+          #git clone --depth 1 --filter=blob:none --sparse https://github.com/xybp888/iOS-SDKs.git $HOME/iOS-SDKs
+          #cd $HOME/iOS-SDKs
+          #git sparse-checkout set iPhoneOS18.6.sdk
+          #cp -R iPhoneOS18.6.sdk $HOME/theos/sdks/
+          #ls $HOME/theos/sdks
 
       - name: Build roothide
         run: |

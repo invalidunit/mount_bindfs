@@ -6,8 +6,21 @@
 #import <stdio.h>
 #import <string.h>
 #import <Foundation/Foundation.h>
+#import <spawn.h>
 #include <roothide.h>
 #import "libjailbreak_min.h"
+
+// 直接 execl 执行命令（不走 shell）
+static int run_cmd(const char *bin, const char *arg1, const char *arg2) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl(bin, bin, arg1, arg2, NULL);
+        _exit(127);
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
 
 // ============================================================================
 // 全局配置
@@ -269,6 +282,7 @@ int main(int argc, char *argv[]) {
     // ---------- 解析命令行参数 ----------
     int copy_mode = 0;
     int is_auto = 0, is_unmount = 0, is_set = 0, is_list = 0, is_mount = 0;
+    int is_prefs_mount = 0;  // --prefs mount
     int set_mode = 0;  // 0=overwrite, 1=add, 2=del
     NSString *map_src = nil, *map_dst = nil;  // -m src dst
     NSMutableArray *paths = [NSMutableArray array];
@@ -283,6 +297,11 @@ int main(int argc, char *argv[]) {
             copy_mode = 2;
         } else if (!strcmp(argv[i], "--auto")) {
             is_auto = 1;
+        } else if (!strcmp(argv[i], "--prefs")) {
+            if (i + 1 < argc && !strcmp(argv[i+1], "mount")) {
+                is_prefs_mount = 1;
+                i++;
+            }
         } else if (!strcmp(argv[i], "-u")) {
             is_unmount = 1;
         } else if (!strcmp(argv[i], "-s")) {
@@ -405,6 +424,17 @@ int main(int argc, char *argv[]) {
         is_mount = 1;
     }
 
+    // ---------- --prefs mount ----------
+    if (is_prefs_mount) {
+        NSArray *arr = prefs[@"path"];
+        if (!arr.count) {
+            printf("No paths configured.\n");
+            return 0;
+        }
+        [paths addObjectsFromArray:arr];
+        is_mount = 1;
+    }
+
     if (!is_mount && !is_unmount) {
         // 没有 -m/-u 时，有路径就当作批量挂载
         if (paths.count) {
@@ -514,11 +544,21 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // 自动模式：至少有一个真正新挂载才重启
+    // 自动模式：至少有一个真正新挂载才生效
     if (is_auto && exit_status == 0 && mounted_count > 0) {
-        printf("[=] Reboot userspace...\n");
-        execl(jbroot("/usr/bin/launchctl"), "launchctl", "reboot", "userspace", (char *)NULL);
-        perror("execl launchctl failed");
+        // 从 prefs 读取重启方式
+        NSString *prefsPath = @(jbroot(PREFS_PATH));
+        NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:prefsPath];
+        int mode = p[@"reboot"] ? [p[@"reboot"] intValue] : 1;
+        if (mode == 2) {
+            printf("[=] Restart desktop...\n");
+            run_cmd(jbroot("/usr/bin/killall"), "-9", "cfprefsd");
+            run_cmd(jbroot("/usr/bin/killall"), "-9", "backboardd");
+        } else {
+            printf("[=] Reboot userspace...\n");
+            execl(jbroot("/usr/bin/launchctl"), "launchctl", "reboot", "userspace", (char *)NULL);
+            perror("execl launchctl failed");
+        }
     }
 
     return exit_status;

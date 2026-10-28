@@ -1,6 +1,6 @@
 Package: com.nan.bindfs
 Name: mount_bindfs
-Version: 0.7.1
+Version: 0.7.2
 Architecture: iphoneos-arm64
 Description: bindfs mount tool
 Maintainer: zhaonan

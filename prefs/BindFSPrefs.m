@@ -4,8 +4,93 @@
 #import <stdlib.h>
 #include <roothide.h>
 
-// 从当前 bundle 加载本地化字符串
-#define BindFSLoc(key) NSLocalizedStringFromTableInBundle(key, nil, [NSBundle bundleForClass:[BindFSPrefsController class]], nil)
+// 从当前 bundle 加载本地化字符串（用 AdvancedSettingsController 因为两个类在同一个 bundle）
+#define BindFSLoc(key) NSLocalizedStringFromTableInBundle(key, nil, [NSBundle bundleForClass:[AdvancedSettingsController class]], nil)
+
+@class BindFSPrefsController;
+
+@interface AdvancedSettingsController : UITableViewController
+@property (nonatomic, strong) NSMutableDictionary *prefs;
+@property (nonatomic, copy) void (^saveBlock)(void);
+@end
+
+@implementation AdvancedSettingsController
+
+- (void)setRootController:(id)controller {}
+- (void)setParentController:(id)controller {}
+- (void)setSpecifier:(id)specifier {}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = BindFSLoc(@"Advanced Settings");
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 1; }
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(4, 10, 250, 24)];
+    label.font = [UIFont systemFontOfSize:13];
+    label.textColor = [UIColor secondaryLabelColor];
+    label.text = (section == 0) ? BindFSLoc(@"CUSTOM MOUNT ROOT") : BindFSLoc(@"RELOAD METHOD");
+    [header addSubview:label];
+    return header;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section { return 40; }
+
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    return 44;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    
+    if (indexPath.section == 0) {
+        // 自定义挂载根 - 左对齐输入框
+        UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(16, 0, cell.contentView.bounds.size.width - 32, 44)];
+        tf.text = self.prefs[@"root"];
+        tf.textAlignment = NSTextAlignmentLeft;
+        tf.font = [UIFont systemFontOfSize:15];
+        tf.clearButtonMode = UITextFieldViewModeWhileEditing;
+        tf.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [tf addTarget:self action:@selector(rootChanged:) forControlEvents:UIControlEventEditingDidEnd];
+        [cell.contentView addSubview:tf];
+    } else {
+        // 生效方式 - 左右选择
+        UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[
+            BindFSLoc(@"Reboot Userspace"),
+            BindFSLoc(@"Restart Desktop")
+        ]];
+        seg.frame = CGRectMake(16, 8, cell.contentView.bounds.size.width - 32, 32);
+        seg.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        NSString *mode = self.prefs[@"reboot"];
+        seg.selectedSegmentIndex = [mode isEqualToString:@"2"] ? 1 : 0;
+        [seg addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
+        [cell.contentView addSubview:seg];
+    }
+    return cell;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == 1) return BindFSLoc(@"Reload note");
+    return nil;
+}
+
+- (void)rootChanged:(UITextField *)tf {
+    self.prefs[@"root"] = tf.text ?: @".jbroot/bindfs";
+    if (self.saveBlock) self.saveBlock();
+}
+
+- (void)modeChanged:(UISegmentedControl *)seg {
+    self.prefs[@"reboot"] = (seg.selectedSegmentIndex == 1) ? @"2" : @"1";
+    if (self.saveBlock) self.saveBlock();
+}
+
+@end
 
 @interface BindFSPrefsController : UITableViewController
 @property (nonatomic, strong) NSMutableDictionary *prefs;
@@ -26,16 +111,22 @@
     self.title = BindFSLoc(@"BindFS");
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     [self loadPrefs];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:BindFSLoc(@"Apply")
-                                                                              style:UIBarButtonItemStyleDone
-                                                                             target:self
-                                                                             action:@selector(applyNow)];
+    UIBarButtonItem *mountBtn = [[UIBarButtonItem alloc] initWithTitle:BindFSLoc(@"Mount Now")
+                                                                   style:UIBarButtonItemStylePlain
+                                                                  target:self
+                                                                  action:@selector(mountNow)];
+    UIBarButtonItem *reloadBtn = [[UIBarButtonItem alloc] initWithTitle:BindFSLoc(@"Reload")
+                                                                   style:UIBarButtonItemStyleDone
+                                                                  target:self
+                                                                  action:@selector(reloadNow)];
+    self.navigationItem.rightBarButtonItems = @[reloadBtn, mountBtn];
 }
 
 - (void)loadPrefs {
     self.prefs = [[NSDictionary dictionaryWithContentsOfFile:[self prefsPath]] mutableCopy] ?: [NSMutableDictionary dictionary];
     if (!self.prefs[@"Enable"]) self.prefs[@"Enable"] = @YES;
     if (!self.prefs[@"root"]) self.prefs[@"root"] = @".jbroot/bindfs";
+    if (!self.prefs[@"reboot"]) self.prefs[@"reboot"] = @"1";
     if (!self.prefs[@"path"]) self.prefs[@"path"] = [NSMutableArray array];
     else self.prefs[@"path"] = [self.prefs[@"path"] mutableCopy];
 }
@@ -79,41 +170,36 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (tableView.tag == 999) return 1;  // credits 页面只有一行
-    if (section == 0 || section == 1 || section == 3 || section == 4) return 1;
+    if (section == 0 || section == 2 || section == 3 || section == 4) return 1;
     return [self.prefs[@"path"] count] ?: 1;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
-    if (section != 1 && section != 2) return nil;
+    if (section != 1) return nil;
     
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(4, 10, 200, 24)];
     label.font = [UIFont systemFontOfSize:13];
     label.textColor = [UIColor secondaryLabelColor];
+    label.text = BindFSLoc(@"PLANNED MOUNTS");
     [header addSubview:label];
     
-    if (section == 1) {
-        label.text = BindFSLoc(@"CUSTOM MOUNT ROOT");
-    } else {
-        label.text = BindFSLoc(@"PLANNED MOUNTS");
-        // 排序和添加按钮
-        UIButton *sortBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        sortBtn.frame = CGRectMake(tableView.bounds.size.width - 100, 5, 30, 30);
-        [sortBtn setImage:[UIImage systemImageNamed:@"arrow.up.arrow.down"] forState:UIControlStateNormal];
-        [sortBtn addTarget:self action:@selector(toggleEdit) forControlEvents:UIControlEventTouchUpInside];
-        [header addSubview:sortBtn];
+    UIButton *sortBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    sortBtn.frame = CGRectMake(tableView.bounds.size.width - 100, 5, 30, 30);
+    [sortBtn setImage:[UIImage systemImageNamed:@"arrow.up.arrow.down"] forState:UIControlStateNormal];
+    [sortBtn addTarget:self action:@selector(toggleEdit) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:sortBtn];
 
-        UIButton *addBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        addBtn.frame = CGRectMake(tableView.bounds.size.width - 60, 5, 30, 30);
-        [addBtn setImage:[UIImage systemImageNamed:@"plus"] forState:UIControlStateNormal];
-        [addBtn addTarget:self action:@selector(showAddPath) forControlEvents:UIControlEventTouchUpInside];
-        [header addSubview:addBtn];
-    }
+    UIButton *addBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    addBtn.frame = CGRectMake(tableView.bounds.size.width - 60, 5, 30, 30);
+    [addBtn setImage:[UIImage systemImageNamed:@"plus"] forState:UIControlStateNormal];
+    [addBtn addTarget:self action:@selector(showAddPath) forControlEvents:UIControlEventTouchUpInside];
+    [header addSubview:addBtn];
     return header;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return (section == 1 || section == 2) ? 40 : UITableViewAutomaticDimension;
+    return section == 1 ? 40 : UITableViewAutomaticDimension;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -138,17 +224,6 @@
         cell.accessoryView = sw;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else if (indexPath.section == 1) {
-        // 自定义挂载根 - 左对齐输入框
-        UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(16, 0, cell.contentView.bounds.size.width - 32, 44)];
-        tf.text = self.prefs[@"root"];
-        tf.textAlignment = NSTextAlignmentLeft;
-        tf.font = [UIFont systemFontOfSize:15];
-        tf.clearButtonMode = UITextFieldViewModeWhileEditing;
-        tf.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [tf addTarget:self action:@selector(rootChanged:) forControlEvents:UIControlEventEditingDidEnd];
-        [cell.contentView addSubview:tf];
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (indexPath.section == 2) {
         NSArray *paths = self.prefs[@"path"];
         if (paths.count == 0) {
             cell.textLabel.text = BindFSLoc(@"(none)");
@@ -158,6 +233,9 @@
             cell.textLabel.font = [UIFont systemFontOfSize:14];
         }
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (indexPath.section == 2) {
+        cell.textLabel.text = BindFSLoc(@"Advanced Settings");
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else if (indexPath.section == 3) {
         cell.textLabel.text = BindFSLoc(@"Reset All Options...");
         cell.textLabel.textColor = [UIColor systemRedColor];
@@ -175,8 +253,16 @@
         [self openGrok];
         return;
     }
-    if (indexPath.section == 3) [self resetAllOptions];
+    if (indexPath.section == 2) [self showAdvancedSettings];
+    else if (indexPath.section == 3) [self resetAllOptions];
     else if (indexPath.section == 4) [self showCredits];
+}
+
+- (void)showAdvancedSettings {
+    AdvancedSettingsController *vc = [[AdvancedSettingsController alloc] init];
+    vc.prefs = self.prefs;
+    vc.saveBlock = ^{ [self savePrefs]; };
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)showCredits {
@@ -193,7 +279,7 @@
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section != 2 || [self.prefs[@"path"] count] == 0) return nil;
+    if (indexPath.section != 1 || [self.prefs[@"path"] count] == 0) return nil;
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:BindFSLoc(@"Delete") handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
         [self.prefs[@"path"] removeObjectAtIndex:indexPath.row];
         [self savePrefs];
@@ -205,11 +291,16 @@
         done(YES);
     }];
     edit.backgroundColor = [UIColor systemBlueColor];
-    return [UISwipeActionsConfiguration configurationWithActions:@[del, edit]];
+    UIContextualAction *open = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:BindFSLoc(@"Open") handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
+        [self openInFilza:self.prefs[@"path"][indexPath.row]];
+        done(YES);
+    }];
+    open.backgroundColor = [UIColor systemGreenColor];
+    return [UISwipeActionsConfiguration configurationWithActions:@[del, edit, open]];
 }
 
 - (BOOL)tableView:(UITableView *)tableView canMoveRowAtIndexPath:(NSIndexPath *)indexPath {
-    return indexPath.section == 2 && [self.prefs[@"path"] count] > 0;
+    return indexPath.section == 1 && [self.prefs[@"path"] count] > 0;
 }
 
 - (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -221,7 +312,7 @@
 }
 
 - (void)tableView:(UITableView *)tableView moveRowAtIndexPath:(NSIndexPath *)src toIndexPath:(NSIndexPath *)dst {
-    if (src.section == 2 && dst.section == 2) {
+    if (src.section == 1 && dst.section == 1) {
         NSMutableArray *paths = self.prefs[@"path"];
         id item = paths[src.row];
         [paths removeObjectAtIndex:src.row];
@@ -343,6 +434,7 @@
     [c addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
     [c addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"Reset") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         self.prefs[@"root"] = @".jbroot/bindfs";
+        self.prefs[@"reboot"] = @"1";
         self.prefs[@"path"] = [NSMutableArray array];
         [self savePrefs];
         [self.tableView reloadData];
@@ -350,29 +442,60 @@
     [self presentViewController:c animated:YES completion:nil];
 }
 
-- (void)applyNow {
-    UIAlertController *c = [UIAlertController alertControllerWithTitle:BindFSLoc(@"Apply Changes")
-                                                               message:BindFSLoc(@"Apply mount settings now?")
-                                                        preferredStyle:UIAlertControllerStyleAlert];
-    NSMutableAttributedString *t = [[NSMutableAttributedString alloc] initWithString:BindFSLoc(@"Apply Changes")];
-    [t addAttribute:NSForegroundColorAttributeName value:[UIColor systemRedColor] range:NSMakeRange(0, t.length)];
-    [c setValue:t forKey:@"attributedTitle"];
-    [c addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-    [c addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"Apply") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        [self doApply];
-    }]];
-    [self presentViewController:c animated:YES completion:nil];
-}
-
-- (void)doApply {
+- (void)mountNow {
     pid_t pid;
     const char *helper = jbroot("/usr/libexec/mount_bindfs/auto-bindfs-prefs");
-    const char *argv[] = {helper, NULL};
-    int ret = posix_spawn(&pid, argv[0], NULL, NULL, (char **)argv, NULL);
-    NSString *msg = (ret == 0) ? BindFSLoc(@"Applied") : BindFSLoc(@"Failed");
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:BindFSLoc(@"BindFS") message:msg preferredStyle:UIAlertControllerStyleAlert];
+    const char *argv[] = {helper, "mount", NULL};
+    posix_spawn(&pid, argv[0], NULL, NULL, (char **)argv, NULL);
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:BindFSLoc(@"BindFS") message:BindFSLoc(@"Mount attempted") preferredStyle:UIAlertControllerStyleAlert];
     [a addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"OK") style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)reloadNow {
+    NSString *mode = self.prefs[@"reboot"] ?: @"1";
+    pid_t pid;
+    const char *helper = jbroot("/usr/libexec/mount_bindfs/auto-bindfs-prefs");
+    const char *argv[] = {helper, "reboot", mode.UTF8String, NULL};
+    posix_spawn(&pid, argv[0], NULL, NULL, (char **)argv, NULL);
+}
+
+- (void)openInFilza:(NSString *)path {
+    // 检查 Filza 是否安装
+    if (![[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"filza://"]]) {
+        [self showPathError:BindFSLoc(@"Filza not installed")];
+        return;
+    }
+    NSString *root = self.prefs[@"root"] ?: @".jbroot/bindfs";
+    NSString *cleanPath = [path hasPrefix:@"/"] ? [path substringFromIndex:1] : path;
+    NSString *fullPath;
+    const char *resolved;
+    
+    if ([root hasPrefix:@".jbroot/"]) {
+        // .jbroot/ 开头：去掉前缀，用 jbroot() 解析
+        NSString *stripped = [root substringFromIndex:8];  // 去掉 ".jbroot/"
+        fullPath = [NSString stringWithFormat:@"/%@/%@", stripped, cleanPath];
+        resolved = jbroot(fullPath.UTF8String);
+    } else if ([root hasPrefix:@"/"]) {
+        // / 开头：真实路径，直接拼接
+        fullPath = [NSString stringWithFormat:@"%@/%@", root, cleanPath];
+        resolved = fullPath.UTF8String;
+    } else {
+        // 其他情况：当作相对路径用 jbroot()
+        fullPath = [NSString stringWithFormat:@"/%@/%@", root, cleanPath];
+        resolved = jbroot(fullPath.UTF8String);
+    }
+    
+    // 检查存在
+    if (access(resolved, F_OK) != 0) {
+        [self showPathError:[NSString stringWithFormat:@"%@\n%@", BindFSLoc(@"Path does not exist, please apply mount first"), @(resolved)]];
+        return;
+    }
+    // 解析成真实路径传给 Filza
+    char real[PATH_MAX];
+    const char *realPath = realpath(resolved, real) ? real : resolved;
+    NSString *url = [NSString stringWithFormat:@"filza://view%@", @(realPath)];
+    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:url] options:@{} completionHandler:nil];
 }
 
 @end
