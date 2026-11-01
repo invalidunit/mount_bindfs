@@ -34,3 +34,4 @@
 "Path does not exist, please apply mount first" = "路径不存在，请先应用挂载";
 "Mount attempted" = "已尝试挂载";
 "Filza not installed" = "Filza 未安装";
+"RELOAD DELAY" = "重载延时";

@@ -12,9 +12,8 @@ include $(THEOS)/makefiles/common.mk
 
 TOOL_NAME = mount_bindfs auto-bindfs-prefs
 
-mount_bindfs_FILES = mount_bindfs.m
-mount_bindfs_CFLAGS = -fobjc-arc
-mount_bindfs_FRAMEWORKS = Foundation
+mount_bindfs_FILES = mount_bindfs.c
+mount_bindfs_FRAMEWORKS = CoreFoundation
 mount_bindfs_INSTALL_PATH = /usr/sbin
 mount_bindfs_LDFLAGS += -Wl,-undefined,dynamic_lookup
 

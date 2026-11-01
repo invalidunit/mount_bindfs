@@ -26,7 +26,7 @@
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
 }
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 1; }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
@@ -34,7 +34,8 @@
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(4, 10, 250, 24)];
     label.font = [UIFont systemFontOfSize:13];
     label.textColor = [UIColor secondaryLabelColor];
-    label.text = (section == 0) ? BindFSLoc(@"CUSTOM MOUNT ROOT") : BindFSLoc(@"RELOAD METHOD");
+    label.text = (section == 0) ? BindFSLoc(@"CUSTOM MOUNT ROOT") : 
+                 (section == 1) ? BindFSLoc(@"RELOAD METHOD") : BindFSLoc(@"RELOAD DELAY");
     [header addSubview:label];
     return header;
 }
@@ -59,7 +60,7 @@
         tf.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         [tf addTarget:self action:@selector(rootChanged:) forControlEvents:UIControlEventEditingDidEnd];
         [cell.contentView addSubview:tf];
-    } else {
+    } else if (indexPath.section == 1) {
         // 生效方式 - 左右选择
         UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[
             BindFSLoc(@"Reboot Userspace"),
@@ -67,10 +68,49 @@
         ]];
         seg.frame = CGRectMake(16, 8, cell.contentView.bounds.size.width - 32, 32);
         seg.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        NSString *mode = self.prefs[@"reboot"];
-        seg.selectedSegmentIndex = [mode isEqualToString:@"2"] ? 1 : 0;
+        NSInteger mode = [self.prefs[@"reboot"] integerValue];
+        seg.selectedSegmentIndex = (mode == 2) ? 1 : 0;
         [seg addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
         [cell.contentView addSubview:seg];
+    } else {
+        // 重载延时 - 滑块 + 加减按钮
+        CGFloat width = cell.contentView.bounds.size.width;
+        
+        // 减号按钮
+        UIButton *minusBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        minusBtn.frame = CGRectMake(8, 7, 30, 30);
+        [minusBtn setImage:[UIImage systemImageNamed:@"minus.circle"] forState:UIControlStateNormal];
+        minusBtn.tag = 100;
+        [minusBtn addTarget:self action:@selector(delayAdjust:) forControlEvents:UIControlEventTouchUpInside];
+        [cell.contentView addSubview:minusBtn];
+        
+        // 滑块
+        UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(42, 7, width - 130, 30)];
+        slider.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        slider.minimumValue = 0;
+        slider.maximumValue = 10;
+        slider.value = [self.prefs[@"sleep"] floatValue];
+        slider.tag = 101;
+        [slider addTarget:self action:@selector(delayChanged:) forControlEvents:UIControlEventValueChanged];
+        [cell.contentView addSubview:slider];
+        
+        // 数值标签
+        UILabel *valLabel = [[UILabel alloc] initWithFrame:CGRectMake(width - 84, 7, 40, 30)];
+        valLabel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        valLabel.text = [NSString stringWithFormat:@"%.1fs", slider.value];
+        valLabel.font = [UIFont monospacedDigitSystemFontOfSize:14 weight:UIFontWeightMedium];
+        valLabel.textAlignment = NSTextAlignmentCenter;
+        valLabel.tag = 102;
+        [cell.contentView addSubview:valLabel];
+        
+        // 加号按钮
+        UIButton *plusBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        plusBtn.frame = CGRectMake(width - 40, 7, 30, 30);
+        plusBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        [plusBtn setImage:[UIImage systemImageNamed:@"plus.circle"] forState:UIControlStateNormal];
+        plusBtn.tag = 103;
+        [plusBtn addTarget:self action:@selector(delayAdjust:) forControlEvents:UIControlEventTouchUpInside];
+        [cell.contentView addSubview:plusBtn];
     }
     return cell;
 }
@@ -86,8 +126,26 @@
 }
 
 - (void)modeChanged:(UISegmentedControl *)seg {
-    self.prefs[@"reboot"] = (seg.selectedSegmentIndex == 1) ? @"2" : @"1";
+    self.prefs[@"reboot"] = @(seg.selectedSegmentIndex == 1 ? 2 : 1);
     if (self.saveBlock) self.saveBlock();
+}
+
+- (void)delayChanged:(UISlider *)slider {
+    float val = roundf(slider.value * 10) / 10;
+    slider.value = val;
+    self.prefs[@"sleep"] = @(val);
+    UILabel *label = [slider.superview viewWithTag:102];
+    label.text = [NSString stringWithFormat:@"%.1fs", val];
+    if (self.saveBlock) self.saveBlock();
+}
+
+- (void)delayAdjust:(UIButton *)btn {
+    UISlider *slider = [btn.superview viewWithTag:101];
+    float delta = (btn.tag == 103) ? 0.1 : -0.1;
+    float val = fmaxf(0, fminf(10, slider.value + delta));
+    val = roundf(val * 10) / 10;
+    slider.value = val;
+    [self delayChanged:slider];
 }
 
 @end
@@ -126,7 +184,7 @@
     self.prefs = [[NSDictionary dictionaryWithContentsOfFile:[self prefsPath]] mutableCopy] ?: [NSMutableDictionary dictionary];
     if (!self.prefs[@"Enable"]) self.prefs[@"Enable"] = @YES;
     if (!self.prefs[@"root"]) self.prefs[@"root"] = @".jbroot/bindfs";
-    if (!self.prefs[@"reboot"]) self.prefs[@"reboot"] = @"1";
+    if (!self.prefs[@"reboot"]) self.prefs[@"reboot"] = @1;
     if (!self.prefs[@"path"]) self.prefs[@"path"] = [NSMutableArray array];
     else self.prefs[@"path"] = [self.prefs[@"path"] mutableCopy];
 }
@@ -434,7 +492,7 @@
     [c addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
     [c addAction:[UIAlertAction actionWithTitle:BindFSLoc(@"Reset") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         self.prefs[@"root"] = @".jbroot/bindfs";
-        self.prefs[@"reboot"] = @"1";
+        self.prefs[@"reboot"] = @1;
         self.prefs[@"path"] = [NSMutableArray array];
         [self savePrefs];
         [self.tableView reloadData];
@@ -453,10 +511,10 @@
 }
 
 - (void)reloadNow {
-    NSString *mode = self.prefs[@"reboot"] ?: @"1";
+    NSInteger mode = [self.prefs[@"reboot"] integerValue] ?: 1;
     pid_t pid;
     const char *helper = jbroot("/usr/libexec/mount_bindfs/auto-bindfs-prefs");
-    const char *argv[] = {helper, "reboot", mode.UTF8String, NULL};
+    const char *argv[] = {helper, "reboot", [[NSString stringWithFormat:@"%ld", (long)mode] UTF8String], NULL};
     posix_spawn(&pid, argv[0], NULL, NULL, (char **)argv, NULL);
 }
 
